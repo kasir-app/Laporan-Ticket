@@ -1,0 +1,1040 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import {
+  getAuth,
+  onAuthStateChanged,
+  signOut,
+  GithubAuthProvider,
+  signInAnonymously,
+  signInWithCustomToken,
+  signInWithRedirect,
+  getRedirectResult,
+} from 'firebase/auth';
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  getDocs,
+  Timestamp,
+  doc,
+  updateDoc,
+  deleteDoc,
+  setLogLevel,
+} from 'firebase/firestore';
+import {
+  LayoutDashboard,
+  Ticket,
+  FileInput,
+  HardHat,
+  UserCheck,
+  Users,
+  Calendar,
+  Briefcase,
+  Wrench,
+  User,
+  LogOut,
+  Menu,
+  X,
+  Loader2,
+  Send,
+  Trash2,
+  FileDown,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  MessageSquare,
+  Settings,
+  Github,
+} from 'lucide-react';
+
+// --- Konfigurasi Firebase & ID Aplikasi ---
+const USER_PROVIDED_CONFIG = {
+  apiKey: "AIzaSyC_imtiUZVavmtW94b0GbIj40teeK5jFwY",
+  authDomain: "laporan-ticket.firebaseapp.com",
+  projectId: "laporan-ticket",
+  storageBucket: "laporan-ticket.firebasestorage.app",
+  messagingSenderId: "507199711392",
+  appId: "1:507199711392:web:6d0a78039414c94cc5c1c5",
+  measurementId: "G-ME2B3T11ZL"
+};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfigJSON = (typeof __firebase_config !== 'undefined' && __firebase_config !== '{}')
+  ? __firebase_config
+  : JSON.stringify(USER_PROVIDED_CONFIG);
+
+// --- Daftar Branch ---
+const BRANCH_LIST = [
+  'Branch Ciracas', 'Branch Cawang', 'Branch Duren sawit', 'Branch Rawamangun',
+  'Branch Ujung Menteng', 'Branch Pondok Kopi', 'Branch Sunter', 'Branch Pademangan',
+  'Branch Pluit', 'Branch Kelapa Gading', 'Branch Tanjung Priok'
+];
+
+// --- Konfigurasi Menu ---
+const MENU_ITEMS = [
+  { name: 'Dashboard', icon: LayoutDashboard, page: 'Dashboard', isForm: false },
+  // Menu "Laporan Ticket" dihapus sesuai permintaan
+  {
+    name: 'Input Ticket', icon: FileInput, page: 'Input Ticket', isForm: true, collectionName: 'tickets',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'nomerTiket', label: 'Nomer Tiket', type: 'text' },
+      { name: 'judul', label: 'Judul Ticket', type: 'select', options: ['Internet Down', 'Internet Slow', 'Internet Updown', 'Kendala Masa Aktif', 'Alamat Tidak Lengkap'] },
+      { name: 'namaCustomer', label: 'Nama Customer', type: 'text' },
+      { name: 'noTelepon', label: 'No. Telepon (WA)', type: 'text' },
+      { name: 'deskripsi', label: 'Deskripsi Masalah', type: 'textarea' },
+      { name: 'status', label: 'Status', type: 'select', options: ['Baru', 'Proses', 'Done'] },
+    ],
+  },
+  {
+    name: 'Maintenance', icon: HardHat, page: 'Maintenance', isForm: true, collectionName: 'maintenance',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'judul', label: 'Judul Maintenance', type: 'text' },
+      { name: 'lokasi', label: 'Lokasi', type: 'text' },
+      { name: 'deskripsi', label: 'Deskripsi Pekerjaan', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Konfirm Customer', icon: UserCheck, page: 'Konfirm Customer', isForm: true, collectionName: 'konfirmasi',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'namaCustomer', label: 'Nama Customer', type: 'text' },
+      { name: 'noTelepon', label: 'No. Telepon (WA)', type: 'text' },
+      { name: 'ticketId', label: 'ID Ticket Terkait', type: 'text' },
+      { name: 'status', label: 'Status', type: 'select', options: ['Done', 'Progres', 'Failed'] },
+      { name: 'feedback', label: 'Feedback Customer', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Kendala Vendor', icon: Users, page: 'Kendala Vendor', isForm: true, collectionName: 'kendala_vendor',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'namaVendor', label: 'Nama Vendor', type: 'text' },
+      { name: 'kendala', label: 'Deskripsi Kendala', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Absensi', icon: Calendar, page: 'Absensi', isForm: true, collectionName: 'absensi',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'nama', label: 'Nama Karyawan', type: 'text' },
+      { name: 'status', label: 'Status Kehadiran', type: 'select', options: ['Terlambat', 'Sakit', 'Izin', 'Alpa'] },
+      { name: 'catatan', label: 'Catatan', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Tools', icon: Wrench, page: 'Tools', isForm: true, collectionName: 'tools',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'namaTools', label: 'Nama Tools', type: 'text' },
+      { name: 'kondisi', label: 'Kondisi', type: 'select', options: ['Baik', 'Rusak', 'Hilang'] },
+      { name: 'catatan', label: 'Catatan', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Cuty', icon: Briefcase, page: 'Cuty', isForm: true, collectionName: 'cuty',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'nama', label: 'Nama Karyawan', type: 'text' },
+      { name: 'tanggalMulai', label: 'Tanggal Mulai', type: 'date' },
+      { name: 'tanggalSelesai', label: 'Tanggal Selesai', type: 'date' },
+      { name: 'alasan', label: 'Alasan Cuti', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Optional', icon: Settings, page: 'Optional', isForm: true, collectionName: 'optional',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'judul', label: 'Judul', type: 'text' },
+      { name: 'keterangan', label: 'Keterangan', type: 'textarea' },
+    ],
+  },
+];
+
+// --- Helper Functions ---
+const getPublicDataPath = (collectionName) => {
+  return `/artifacts/${appId}/public/data/${collectionName}`;
+};
+
+const formatTimestamp = (timestamp) => {
+  if (!timestamp) return 'N/A';
+  const d = timestamp.toDate();
+  return d.toLocaleString('id-ID', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+};
+
+// --- Komponen Halaman ---
+
+/**
+ * Komponen Dashboard
+ */
+function Dashboard({ db, isAuthReady, setCurrentPage }) {
+  const [stats, setStats] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!db || !isAuthReady) return;
+
+    const fetchStats = async () => {
+      setLoading(true);
+      const categories = MENU_ITEMS.filter(item => item.isForm);
+      const statsPromises = categories.map(async (cat) => {
+        try {
+          const path = getPublicDataPath(cat.collectionName);
+          const q = query(collection(db, path));
+          const querySnapshot = await getDocs(q);
+          return {
+            name: cat.name,
+            count: querySnapshot.size,
+            icon: cat.icon,
+          };
+        } catch (error) {
+          console.error(`Error fetching count for ${cat.name}:`, error);
+          return { name: cat.name, count: 0, icon: cat.icon };
+        }
+      });
+
+      const results = await Promise.all(statsPromises);
+      setStats(results);
+      setLoading(false);
+    };
+
+    fetchStats();
+  }, [db, isAuthReady]);
+
+  return (
+    <div className="animate-fade-in p-6">
+      <h1 className="text-3xl font-bold text-gray-800 mb-8">Dashboard</h1>
+      {loading ? (
+        <div className="flex justify-center items-center h-64">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {stats.map(stat => (
+            <button
+              key={stat.name}
+              onClick={() => setCurrentPage(stat.name)}
+              className="bg-white rounded-xl shadow-lg p-6 flex items-center space-x-4 transition-transform transform hover:scale-105 w-full text-left hover:shadow-xl"
+            >
+              <stat.icon className="w-12 h-12 text-blue-500" />
+              <div>
+                <p className="text-sm font-medium text-gray-500">{stat.name}</p>
+                <p className="text-3xl font-bold text-gray-800">{stat.count}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Komponen Halaman Input Data & Laporan
+ */
+function DataEntryPage({ db, user, isAuthReady, pageConfig }) {
+  const { name, collectionName, fields } = pageConfig;
+  const [formData, setFormData] = useState(() =>
+    fields.reduce((acc, field) => ({ ...acc, [field.name]: '' }), {})
+  );
+  const [reportData, setReportData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [entriesPerPage, setEntriesPerPage] = useState(10);
+  const [editingItem, setEditingItem] = useState(null);
+
+  // Reset form saat halaman berubah
+  useEffect(() => {
+    resetForm();
+  }, [pageConfig]);
+
+  // Listener real-time untuk data laporan
+  useEffect(() => {
+    if (!db || !isAuthReady || !collectionName) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const path = getPublicDataPath(collectionName);
+    const q = query(collection(db, path));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Urutkan di sini (client-side)
+      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setReportData(data);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error listening to data: ", err);
+      setError("Gagal memuat data laporan.");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [db, isAuthReady, collectionName]);
+
+  // Filter data
+  const filteredData = useMemo(() => {
+    let data = reportData;
+    if (startDate && endDate) {
+      try {
+        const start = new Date(startDate).getTime() / 1000;
+        const end = (new Date(endDate).getTime() / 1000) + 86400;
+        data = data.filter(item => {
+          const itemTime = item.createdAt?.seconds;
+          if (!itemTime) return false;
+          return itemTime >= start && itemTime <= end;
+        });
+      } catch (e) { console.error("Error parsing date: ", e); }
+    }
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      data = data.filter(item =>
+        Object.values(item).some(val => {
+          if (val instanceof Timestamp) return formatTimestamp(val).toLowerCase().includes(lowerSearch);
+          return String(val).toLowerCase().includes(lowerSearch);
+        })
+      );
+    }
+    return data;
+  }, [reportData, searchTerm, startDate, endDate]);
+
+  // Reset halaman saat filter berubah
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, startDate, endDate]);
+
+  // Data untuk paginasi
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * entriesPerPage;
+    const endIndex = startIndex + entriesPerPage;
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, currentPage, entriesPerPage]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setFormData(fields.reduce((acc, field) => ({ ...acc, [field.name]: '' }), {}));
+    setEditingItem(null);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!db || !user) {
+      setError("Autentikasi gagal. Silakan muat ulang.");
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const path = getPublicDataPath(collectionName);
+      if (editingItem) {
+        const docRef = doc(db, path, editingItem.id);
+        await updateDoc(docRef, { ...formData, updatedAt: Timestamp.now(), updatedBy: user.email || user.uid });
+      } else {
+        const docRef = await addDoc(collection(db, path), {
+          ...formData, createdAt: Timestamp.now(), createdBy: user.email || user.uid,
+        });
+        if (collectionName === 'tickets' && formData.status === 'Done') {
+          const konfirmasiPath = getPublicDataPath('konfirmasi');
+          await addDoc(collection(db, konfirmasiPath), {
+            namaCustomer: formData.namaCustomer || '',
+            noTelepon: formData.noTelepon || '',
+            ticketId: formData.nomerTiket || '',
+            feedback: '',
+            originalTicketId: docRef.id || '',
+            createdAt: Timestamp.now(),
+            createdBy: 'Sistem (Otomatis)',
+          });
+        }
+      }
+      resetForm();
+    } catch (err) {
+      console.error("Error saving document: ", err);
+      setError("Gagal menyimpan data.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingItem(item);
+    setFormData(item);
+    window.scrollTo(0, 0);
+  };
+
+  const handleDelete = async (docId) => {
+    if (!db || !collectionName || !docId) return;
+    try {
+      const path = getPublicDataPath(collectionName);
+      const docRef = doc(db, path, docId);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error("Error deleting document: ", err);
+      setError("Gagal menghapus data.");
+    }
+  };
+
+  const handleWhatsApp = (item) => {
+    let phone = item.noTelepon || '';
+    if (phone.startsWith('0')) phone = '62' + phone.substring(1);
+    phone = phone.replace(/[^0-9]/g, '');
+    if (!phone) {
+      setError("No. Telepon customer tidak valid atau kosong.");
+      return;
+    }
+    const ticketRef = item.nomerTiket || item.ticketId || '[ID Tiket]';
+    const customerName = item.namaCustomer || '[Customer]';
+    const message = encodeURIComponent(
+      `Halo Bpk/Ibu ${customerName},\n\nIni adalah pesan terkait tiket ${ticketRef}.\n\n(Mohon lanjutkan pesan Anda di sini...)\n\nTerima kasih.`
+    );
+    const waUrl = `https://wa.me/${phone}?text=${message}`;
+    window.open(waUrl, '_blank');
+  };
+
+  const handleDownloadCSV = () => {
+    if (filteredData.length === 0) return;
+    const headers = [...fields.map(f => f.label), "Dibuat Oleh", "Waktu Input"];
+    
+    // FIX: Menggunakan ; sebagai pemisah untuk Excel
+    const csvRows = [headers.join(';')]; // Baris header
+
+    // Buat baris data
+    filteredData.forEach(item => {
+      const row = fields.map(field => {
+        // Ambil nilai, pastikan string, dan handle koma/quotes di dalam data
+        const value = String(item[field.name] || '-').replace(/"/g, '""'); // Ganti double quotes
+        return `"${value}"`; // Bungkus semua nilai dengan double quotes
+      });
+      
+      row.push(`"${item.createdBy?.split('@')[0] || item.createdBy}"`);
+      row.push(`"${formatTimestamp(item.createdAt)}"`);
+      
+      // FIX: Menggunakan ; sebagai pemisah untuk Excel
+      csvRows.push(row.join(';'));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    const filename = `Laporan_${name.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Helper untuk render field input
+  const renderField = (field) => {
+    const commonProps = {
+      name: field.name,
+      id: field.name,
+      required: true,
+      value: formData[field.name] || '',
+      onChange: handleChange,
+      className: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-3",
+    };
+
+    switch (field.type) {
+      case 'textarea':
+        return <textarea {...commonProps} rows={5} />; // Diubah dari 10 menjadi 5
+      case 'select':
+        return (
+          <select {...commonProps}>
+            <option value="">Pilih {field.label}</option>
+            {field.options.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        );
+      case 'date':
+        return <input type="date" {...commonProps} />;
+      default:
+        return <input type="text" {...commonProps} />;
+    }
+  };
+
+  return (
+    <div className="animate-fade-in space-y-8 p-4 md:p-6">
+      {/* Bagian Input Data */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6">
+          {editingItem ? `Edit Data: ${name}` : name}
+        </h2>
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-4">
+            <p className="text-sm font-medium text-red-700">{error}</p>
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {fields.map(field => (
+            <div key={field.name}>
+              <label htmlFor={field.name} className="block text-sm font-medium text-gray-700">
+                {field.label}
+              </label>
+              {renderField(field)}
+            </div>
+          ))}
+          <div className="flex justify-end items-center space-x-3 pt-4">
+            {editingItem && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              >
+                Batal
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : (editingItem ? <Pencil className="w-4 h-4 mr-2" /> : <Send className="w-4 h-4 mr-2" />)}
+              {editingItem ? 'Update Data' : 'Simpan Data'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Bagian Laporan */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+          <h2 className="text-2xl font-semibold text-gray-800">Laporan {name}</h2>
+          <button
+            onClick={handleDownloadCSV}
+            className="inline-flex items-center justify-center rounded-md border border-transparent bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 w-full md:w-auto"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            Download CSV (Excel)
+          </button>
+        </div>
+
+        {/* --- Filter Bar --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+          <div className="relative md:col-span-1">
+            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">Cari Laporan</label>
+            <div className="relative">
+              <input
+                type="text"
+                id="search"
+                placeholder="Ketik untuk mencari..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="w-5 h-5 text-gray-400" />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">Dari Tanggal</label>
+            <input
+              type="date"
+              id="startDate"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">Sampai Tanggal</label>
+            <input
+              type="date"
+              id="endDate"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+        </div>
+        {/* --- End Filter Bar --- */}
+
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex justify-center items-center h-32">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+            </div>
+          ) : filteredData.length === 0 ? (
+            <p className="text-center text-gray-500">
+              {reportData.length > 0 ? 'Tidak ada data yang cocok dengan filter Anda.' : 'Belum ada data laporan.'}
+            </p>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  {fields.map(field => (
+                    <th key={field.name} scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                      {field.label}
+                    </th>
+                  ))}
+                  <th scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                    Dibuat Oleh
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                    Waktu Input
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {paginatedData.map(item => (
+                  <tr key={item.id} className="hover:bg-gray-50">
+                    {fields.map(field => {
+                      // Cek apakah field ini adalah textarea
+                      const isTextarea = field.type === 'textarea';
+                      
+                      // Kelas dasar untuk sel
+                      const cellClassName = `px-6 py-4 text-sm text-gray-700 align-top`; 
+
+                      return (
+                        <td key={field.name} className={cellClassName}>
+                          {isTextarea ? (
+                            // FIX: Buat "kotak kecil" dengan scroll
+                            <div 
+                              className="max-w-xs max-h-24 overflow-y-auto" 
+                              style={{ whiteSpace: 'pre-wrap' }}
+                            >
+                              {item[field.name] || '-'}
+                            </div>
+                          ) : (
+                            // Tampilkan data lain seperti biasa
+                            <div className="whitespace-nowrap">
+                              {field.type === 'date' ? item[field.name] : (item[field.name] || '-')}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 align-top">
+                      {item.createdBy?.split('@')[0] || item.createdBy}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 align-top">
+                      {formatTimestamp(item.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium align-top">
+                      <div className="flex items-center space-x-3">
+                        {(item.noTelepon) && (
+                          <button
+                            onClick={() => handleWhatsApp(item)}
+                            className="text-green-600 hover:text-green-800"
+                            title="Kirim WhatsApp"
+                          >
+                            <MessageSquare className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleEdit(item)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Edit"
+                        >
+                          <Pencil className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* --- Pagination Controls --- */}
+        <div className="flex flex-col md:flex-row items-center justify-between px-4 py-3 bg-white border-t border-gray-200 sm:px-6 rounded-b-xl mt-0">
+          <div className="flex-1 flex justify-between sm:hidden">
+            <button
+              onClick={() => setCurrentPage(p => p - 1)}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Sebelumnya
+            </button>
+            <button
+              onClick={() => setCurrentPage(p => p + 1)}
+              disabled={currentPage === Math.ceil(filteredData.length / entriesPerPage) || filteredData.length === 0}
+              className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Berikutnya
+            </button>
+          </div>
+          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-2">
+              <label htmlFor="entries" className="text-sm font-medium text-gray-700">
+                Tampilkan
+              </label>
+              <select
+                id="entries"
+                name="entries"
+                value={entriesPerPage}
+                onChange={(e) => {
+                  setEntriesPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="block w-20 rounded-md border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-sm text-gray-700">entri</span>
+            </div>
+            <div>
+              <p className="text-sm text-gray-700">
+                Menampilkan <span className="font-medium">{filteredData.length === 0 ? 0 : (currentPage - 1) * entriesPerPage + 1}</span> sampai <span className="font-medium">{Math.min(currentPage * entriesPerPage, filteredData.length)}</span> dari <span className="font-medium">{filteredData.length}</span> entri
+              </p>
+            </div>
+            <div>
+              <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                <button
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <span className="sr-only">Sebelumnya</span>
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  disabled={currentPage === Math.ceil(filteredData.length / entriesPerPage) || filteredData.length === 0}
+                  className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <span className="sr-only">Berikutnya</span>
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+        {/* --- End Pagination Controls --- */}
+
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Komponen Sidebar
+ */
+function Sidebar({ currentPage, setCurrentPage, user, onLogout, isOpen, onClose }) {
+  const handlePageClick = (page) => {
+    setCurrentPage(page);
+    onClose(); // Tutup sidebar di mobile saat item diklik
+  };
+
+  return (
+    <>
+      {/* Overlay untuk mobile */}
+      <div
+        className={`fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden ${isOpen ? 'block' : 'hidden'}`}
+        onClick={onClose}
+      ></div>
+      {/* Sidebar */}
+      <div
+        className={`fixed inset-y-0 left-0 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 w-64 bg-blue-700 text-white flex flex-col z-30 transition-transform duration-300 ease-in-out`}
+      >
+        {/* Header Sidebar */}
+        <div className="flex items-center justify-between h-16 px-6 bg-blue-800">
+          <h1 className="text-2xl font-bold">Laporan App</h1>
+          <button onClick={onClose} className="lg:hidden text-blue-200 hover:text-white">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Navigasi Menu */}
+        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+          {MENU_ITEMS.map((item) => (
+            <button
+              key={item.name}
+              onClick={() => handlePageClick(item.page)}
+              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors duration-200 ${
+                currentPage === item.page
+                  ? 'bg-blue-900 bg-opacity-50 text-white'
+                  : 'text-blue-100 hover:bg-blue-800 hover:text-white'
+              }`}
+            >
+              <item.icon className="w-5 h-5" />
+              <span>{item.name}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Bagian Bawah Sidebar */}
+        <div className="p-4 border-t border-blue-600">
+          {/* Info User */}
+          <div className="flex items-center space-x-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center border-2 border-white">
+              {user?.photoURL ? (
+                <img src={user.photoURL} alt="Avatar" className="rounded-full" />
+              ) : (
+                <User className="w-6 h-6" />
+              )}
+            </div>
+            <div>
+              <p className="text-sm font-medium">
+                {user ? (user.displayName || user.email?.split('@')[0] || 'Guest') : 'Loading...'}
+              </p>
+              <p className="text-sm text-blue-200">
+                {user ? (user.isAnonymous ? 'Anonymous' : (user.providerData[0]?.providerId || 'Online')) : '...'}
+              </p>
+            </div>
+          </div>
+          {/* Tombol Logout */}
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors duration-200"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Komponen Layar Login
+ */
+function LoginScreen({ onLogin, authError }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    setLoading(true);
+    try {
+      await onLogin();
+    } catch (error) {
+      console.error("Login failed", error);
+      // setLoading(false) tidak perlu di sini jika onLogin melakukan redirect
+    }
+    // Jangan set loading false jika kita redirect
+  };
+
+  return (
+    <div className="flex items-center justify-center w-full h-screen bg-gray-100">
+      <div className="p-10 bg-white rounded-xl shadow-2xl flex flex-col items-center">
+        <h1 className="text-3xl font-bold text-gray-800 mb-4">Laporan App</h1>
+        <p className="text-gray-600 mb-8">Silakan login untuk melanjutkan</p>
+        
+        {authError && (
+          <div className="mb-4 rounded-md bg-red-50 p-4 w-full">
+            <p className="text-sm font-medium text-red-700 text-center">{authError}</p>
+          </div>
+        )}
+
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          className="w-full flex items-center justify-center px-6 py-3 bg-gray-800 text-white rounded-lg font-medium hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-700 focus:ring-offset-2 disabled:bg-gray-400"
+        >
+          {loading ? (
+            <Loader2 className="w-6 h-6 animate-spin" />
+          ) : (
+            <>
+              <Github className="w-6 h-6 mr-3" />
+              Login dengan GitHub
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Komponen Aplikasi Utama
+ */
+export default function App() {
+  const [currentPage, setCurrentPage] = useState('Dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  const [app, setApp] = useState(null);
+  const [auth, setAuth] = useState(null);
+  const [db, setDb] = useState(null);
+  
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authError, setAuthError] = useState(null);
+
+  // 1. Inisialisasi Firebase
+  useEffect(() => {
+    try {
+      const config = JSON.parse(firebaseConfigJSON);
+      const firebaseApp = initializeApp(config);
+      const authInstance = getAuth(firebaseApp);
+      const dbInstance = getFirestore(firebaseApp);
+      setLogLevel('Debug');
+      setApp(firebaseApp);
+      setAuth(authInstance);
+      setDb(dbInstance);
+    } catch (error) {
+      console.error("Firebase initialization failed:", error);
+      setAuthError("Gagal menginisialisasi aplikasi. Konfigurasi Firebase mungkin salah.");
+    }
+  }, []);
+
+  // 2. Autentikasi User & Cek Redirect
+  useEffect(() => {
+    if (!auth) return;
+    
+    console.log("Auth is ready, setting up listeners...");
+
+    // Cek hasil redirect DULU
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          console.log("GitHub redirect result:", result.user);
+        }
+        // Baik ada result atau tidak, onAuthStateChanged akan menangani state
+        // dan signInWithToken akan dipanggil jika perlu.
+      })
+      .catch((error) => {
+        console.error("GitHub redirect error:", error);
+        setAuthError("Gagal login dengan GitHub. Silakan coba lagi.");
+      })
+      .finally(() => {
+        // Listener onAuthStateChanged
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+          setUser(currentUser);
+          setIsAuthReady(true);
+          if (currentUser) {
+            console.log("User signed in:", currentUser.uid);
+          } else {
+            console.log("User signed out.");
+            // Coba sign-in dengan token (jika ada) setelah user dipastikan sign out
+            signInWithToken();
+          }
+        });
+
+        // Coba sign-in dengan token (jika ada)
+        const signInWithToken = async () => {
+           if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              try {
+                console.log("Signing in with custom token...");
+                await signInWithCustomToken(auth, __initial_auth_token);
+              } catch (error) {
+                 console.error("Custom token sign-in failed, trying anonymous", error);
+                 await signInAnonymously(auth); // Fallback jika token gagal
+              }
+           }
+           // Jika tidak ada token, kita tunggu user login manual
+        };
+
+        // Panggil signInWithToken *hanya* jika tidak ada user
+        // dan kita tidak sedang menunggu hasil redirect
+        if (!auth.currentUser) {
+          signInWithToken();
+        }
+
+        return () => unsubscribe();
+      });
+
+  }, [auth]); // Jalan saat auth siap
+
+  // Fungsi Login GitHub
+  const handleGitHubLogin = async () => {
+    if (auth) {
+      setAuthError(null);
+      const provider = new GithubAuthProvider();
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (error) {
+        console.error("GitHub Login Error:", error);
+        setAuthError("Gagal memulai login GitHub.");
+      }
+    }
+  };
+
+  // Fungsi Logout
+  const handleLogout = () => {
+    if (auth) {
+      signOut(auth).catch((error) => console.error('Logout error:', error));
+    }
+  };
+
+  // Render konten halaman berdasarkan state
+  const renderPage = () => {
+    const pageConfig = MENU_ITEMS.find(item => item.page === currentPage);
+    if (!pageConfig) return <Dashboard db={db} isAuthReady={isAuthReady} setCurrentPage={setCurrentPage} />;
+
+    if (pageConfig.isForm) {
+      return <DataEntryPage db={db} user={user} isAuthReady={isAuthReady} pageConfig={pageConfig} />;
+    } else {
+      return <Dashboard db={db} isAuthReady={isAuthReady} setCurrentPage={setCurrentPage} />;
+    }
+  };
+
+  // --- Render Utama ---
+
+  if (!isAuthReady) {
+    return (
+      <div className="w-full h-screen flex justify-center items-center bg-gray-100">
+        <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={handleGitHubLogin} authError={authError} />;
+  }
+
+  return (
+    <div className="flex h-screen bg-gray-100">
+      <Sidebar
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        user={user}
+        onLogout={handleLogout}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <header className="bg-white shadow-md h-16 flex items-center justify-between px-6 lg:justify-end">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="text-gray-600 hover:text-gray-900 lg:hidden"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <div className="flex items-center space-x-4">
+            {/* Bisa tambahkan elemen header di sini */}
+          </div>
+        </header>
+        
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100">
+          {renderPage()}
+        </main>
+      </div>
+    </div>
+  );
+}
